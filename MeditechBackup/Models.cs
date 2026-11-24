@@ -16,6 +16,10 @@ public static class Category
     public const string Held = "held";        // 3. Zipping / error, 4. Zipped     -> keep copy, don't scan
     public const string Done = "done";        // 5. Complete / 6. Archived         -> delete the copy (on tape)
     public const string Unknown = "unknown";  // not in the database any more      -> keep, flag it
+    public const string Permanent = "permanent"; // a "permanent folder" from the settings -> always back up, never remove
+
+    /// <summary>Codes of permanent folders start with this; they're not database jobs.</summary>
+    public const string PermanentPrefix = "PERM-";
 
     /// <summary>Statuses start with their pipeline step number ("1. In Progress"), so go by that.</summary>
     public static string FromStatus(string? status)
@@ -32,7 +36,7 @@ public static class Category
         };
     }
 
-    public static bool ShouldScan(string cat) => cat is Active or Pending;
+    public static bool ShouldScan(string cat) => cat is Active or Pending or Permanent;
 }
 
 /// <summary>What the service remembers about each job (saved on the backup drives).</summary>
@@ -78,6 +82,45 @@ public sealed class PersistedState
     public DateTime? LastCycleEnd { get; set; }
     public int CycleNumber { get; set; }
     public Dictionary<string, JobState> Jobs { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>What the full-drive cleanup deleted, newest first (kept to the last 200).</summary>
+    public List<CleanupDeleted> CleanupHistory { get; set; } = new();
+}
+
+/// <summary>One folder the full-drive cleanup deleted.</summary>
+public sealed class CleanupDeleted
+{
+    public DateTime At { get; set; }
+    public string Path { get; set; } = "";
+    /// <summary>"versions" (old versions of a job, A) or "folder" (a folder no job uses, B).</summary>
+    public string Kind { get; set; } = "";
+    public long Bytes { get; set; }
+    /// <summary>Newest write time of anything in it.</summary>
+    public DateTime? Newest { get; set; }
+}
+
+/// <summary>A folder on a backup drive that no job uses: deleted (oldest first) when the drive is full.</summary>
+public sealed class CleanupCandidate
+{
+    public string Path { get; set; } = "";
+    public string Drive { get; set; } = "";
+    public long Bytes { get; set; }
+    public long Files { get; set; }
+    public DateTime? Newest { get; set; }
+    /// <summary>Old enough to delete (and nothing protected inside).</summary>
+    public bool Eligible { get; set; }
+    public string? Note { get; set; }
+}
+
+public sealed class CleanupStatus
+{
+    /// <summary>When the folder list below was last worked out.</summary>
+    public DateTime? SurveyedAt { get; set; }
+    public List<CleanupCandidate> Candidates { get; set; } = new();
+    public long EligibleBytes { get; set; }
+    public long TotalBytes { get; set; }
+    public DateTime? LastRun { get; set; }
+    public string? LastMessage { get; set; }
+    public List<CleanupDeleted> Recent { get; set; } = new();
 }
 
 // ----- Live status snapshot (sent to 201 and shown on the local page) -----
@@ -143,4 +186,5 @@ public sealed class StatusSnapshot
     public List<JobState> Jobs { get; set; } = new();
     public List<LogEntry> Log { get; set; } = new();
     public ServiceSettings? Settings { get; set; }
+    public CleanupStatus? Cleanup { get; set; }
 }

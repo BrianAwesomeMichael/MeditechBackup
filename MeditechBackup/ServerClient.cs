@@ -75,6 +75,9 @@ public sealed class ServerClient
     {
         s.JobOverrides = new Dictionary<string, JobOverride>(s.JobOverrides ?? new(), StringComparer.OrdinalIgnoreCase);
         s.ExcludePatterns ??= new();
+        s.ProtectedFolders ??= new();
+        s.PermanentFolders ??= new();
+        if (s.CleanupMinAgeDays < 1) s.CleanupMinAgeDays = 1;
         if (s.IntervalHours < 0.25) s.IntervalHours = 0.25;
         _settings = s;
         try { Json.WriteAtomic(_cachePath, s); } catch { }

@@ -105,12 +105,15 @@ if ($action === 'save_settings')
     $num('retention_days_pending', 0, 3650);
     $num('reserve_free_gb', 0, 100000);
     $num('max_mb_per_sec', 0, 100000);
-    foreach (array('delete_completed', 'rebalance') as $b)
+    $num('cleanup_free_gb', 0, 100000);
+    $num('cleanup_min_age_days', 1, 3650);
+    foreach (array('delete_completed', 'rebalance', 'cleanup_versions', 'cleanup_unowned') as $b)
         if (isset($in[$b])) $s[$b] = (bool)$in[$b];
-    if (isset($in['exclude_patterns']) && is_array($in['exclude_patterns'])) {
+    foreach (array('exclude_patterns', 'protected_folders', 'permanent_folders') as $k) {
+        if (!isset($in[$k]) || !is_array($in[$k])) continue;
         $p = array();
-        foreach ($in['exclude_patterns'] as $x) { $x = trim((string)$x); if ($x !== '') $p[] = $x; }
-        $s['exclude_patterns'] = array_values(array_unique($p));
+        foreach ($in[$k] as $x) { $x = trim((string)$x); if ($x !== '') $p[] = $x; }
+        $s[$k] = array_values(array_unique($p));
     }
     if (isset($in['job_overrides']) && is_array($in['job_overrides'])) {
         $o = array();

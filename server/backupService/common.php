@@ -14,6 +14,14 @@ $MBK_DEFAULT_SETTINGS = array(
     'delete_completed'       => true,  // delete the backup once a job reaches 5. Complete / 6. Archived
     'rebalance'              => true,  // move whole jobs between drives when one gets nearly full
     'job_overrides'          => array(),// "JOB123" => {"retention_days": 90, "skip": false}
+    // When a drive is full (less free than cleanup_free_gb): delete the oldest things with nothing written in
+    // cleanup_min_age_days, until it's back above it.
+    'cleanup_free_gb'        => 500,
+    'cleanup_min_age_days'   => 7,
+    'cleanup_versions'       => true,  // A: old versions, sooner than their usual retention
+    'cleanup_unowned'        => false, // B: folders on the backup drives that no job uses (old bvckup2 copies etc.)
+    'protected_folders'      => array(),// never deleted by the cleanup: "Archive\Keep" (path under the backup folder) or "KEEP*" (folder name)
+    'permanent_folders'      => array(),// always backed up, whatever the database says: "\\192.168.1.14\Projects2\Library"
 );
 
 function mbk_read_json($name, $default)

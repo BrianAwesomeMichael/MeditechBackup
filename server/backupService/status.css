@@ -39,6 +39,9 @@
 .mbk .cat { font-size: .78em; padding: 1px 7px; border-radius: 9px; background: #eceff1; white-space: nowrap; }
 .mbk .cat.active { background: #c5e1ff; } .mbk .cat.pending { background: #fff3c4; } .mbk .cat.held { background: #e0e0e0; }
 .mbk .cat.done { background: #d4edda; } .mbk .cat.unknown { background: #f8d7da; }
+.mbk .cat.permanent { background: #e1d5f5; }
+.mbk details.cleanup { margin-top: 8px; }
+.mbk details.cleanup summary { cursor: pointer; font-weight: 600; }
 .mbk .log { max-height: 340px; overflow-y: auto; font-family: Consolas, monospace; font-size: .8em; background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 6px 8px; }
 .mbk .log div { white-space: pre-wrap; word-break: break-word; }
 .mbk .log .warn { color: #b26a00; } .mbk .log .error { color: #c62828; }

@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>MeditechBackup</RootNamespace>
     <AssemblyName>MeditechBackup</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
     <ServerGarbageCollection>false</ServerGarbageCollection>
 
@@ -34,10 +34,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Local status page. status.js/.css are the same files the 201 admin tab uses. -->
+    <!-- Local status page. status.js/.css are the same files the 201 admin tab uses (server\backupService\ in
+         this repo, deployed to J:\htdocs\Meditech\backupService\). -->
     <EmbeddedResource Include="wwwroot\index.html" LogicalName="index.html" />
-    <EmbeddedResource Include="..\..\htdocs\Meditech\backupService\status.js" LogicalName="status.js" />
-    <EmbeddedResource Include="..\..\htdocs\Meditech\backupService\status.css" LogicalName="status.css" />
+    <EmbeddedResource Include="..\server\backupService\status.js" LogicalName="status.js" />
+    <EmbeddedResource Include="..\server\backupService\status.css" LogicalName="status.css" />
     <Content Remove="wwwroot\**" />
     <None Include="MeditechBackup.example.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

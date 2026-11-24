@@ -13,13 +13,14 @@ public sealed class BackupEngine : BackgroundService
     private readonly LocalConfig _cfg;
     private readonly BackupDrives _drives;
     private readonly JobRunner _runner;
+    private readonly DriveCleaner _cleaner;
     private readonly SemaphoreSlim _wake = new(0);
     private CancellationTokenSource? _jobCts;
     private volatile bool _runNow;
 
-    public BackupEngine(StatusHub hub, ServerClient server, LocalConfig cfg, BackupDrives drives, JobRunner runner)
+    public BackupEngine(StatusHub hub, ServerClient server, LocalConfig cfg, BackupDrives drives, JobRunner runner, DriveCleaner cleaner)
     {
-        _hub = hub; _server = server; _cfg = cfg; _drives = drives; _runner = runner;
+        _hub = hub; _server = server; _cfg = cfg; _drives = drives; _runner = runner; _cleaner = cleaner;
     }
 
     /// <summary>From the local page or the 201 admin tab.</summary>
@@ -145,7 +146,7 @@ public sealed class BackupEngine : BackgroundService
         _hub.Settings = set;
 
         List<ServerJob> rows;
-        try { rows = await _server.GetJobsAsync(_hub.State.Jobs.Keys.ToList(), stop); }
+        try { rows = await _server.GetJobsAsync(_hub.State.Jobs.Keys.Where(k => !k.StartsWith(Category.PermanentPrefix, StringComparison.OrdinalIgnoreCase)).ToList(), stop); }
         catch (Exception e) when (!stop.IsCancellationRequested)
         {
             _hub.Error("Could not get the job list from the server: " + e.Message);
@@ -168,6 +169,8 @@ public sealed class BackupEngine : BackgroundService
         SyncJobs(rows, set);
         RemoveCompleted(set, ready, stop);
         AssignDestPaths(ready, stop);
+        // Every job has its folder now (so the cleanup can tell what's in use): make room if a drive is full.
+        await Clean(set, stop, force: false);
 
         // Zipping/zipped jobs aren't re-scanned, but their old versions still expire.
         foreach (var j in _hub.State.Jobs.Values.Where(j => j.Category is Category.Held or Category.Unknown).ToList())
@@ -193,40 +196,32 @@ public sealed class BackupEngine : BackgroundService
             if (job.Skip) continue;
 
             _hub.Cycle.JobIndex = i + 1;
+            await Clean(set, stop, force: false);   // only does anything when a drive is under the cleanup level
             Status("running", $"Backing up {job.Code} ({i + 1} of {jobs.Count}).");
-            _jobCts = CancellationTokenSource.CreateLinkedTokenSource(stop);
-            try
+            await RunJob(job, set, stop);
+
+            // Ran out of space: clean up straight away and try the job once more.
+            if (job.LastResult == "error" && (job.LastMessage ?? "").StartsWith("Out of space", StringComparison.Ordinal) &&
+                !stop.IsCancellationRequested && !_hub.State.Paused && await Clean(set, stop, force: true) > 0)
             {
-                var token = _jobCts.Token;
-                var s = set;
-                await Task.Run(() => _runner.Backup(job, s, token), token);
-            }
-            catch (OperationCanceledException) when (!stop.IsCancellationRequested)
-            {
-                job.LastEnd = DateTime.UtcNow;
-                job.LastResult = "interrupted";
-                job.LastMessage = _hub.State.Paused ? "Stopped by Pause" : "Skipped by request";
-            }
-            catch (OperationCanceledException) { job.LastResult = "interrupted"; job.LastMessage = "Service stopped"; throw; }
-            catch (Exception e)
-            {
-                job.LastEnd = DateTime.UtcNow;
-                job.LastResult = "error";
-                job.LastMessage = e.Message;
-                _hub.Error($"{job.Code}: {e}");
-            }
-            finally
-            {
-                _jobCts.Dispose();
-                _jobCts = null;
-                _hub.Current = null;
-                RefreshDrives();
-                _hub.SaveState();
+                _hub.Info($"{job.Code}: trying again after the cleanup.");
+                Status("running", $"Backing up {job.Code} ({i + 1} of {jobs.Count}), after a cleanup.");
+                await RunJob(job, set, stop);
             }
         }
 
         if (!stop.IsCancellationRequested && !_hub.State.Paused && set.Rebalance)
             await Rebalance(set, stop);
+
+        // What the cleanup could delete, for the status page (folder sizes are remembered for a day).
+        if (!stop.IsCancellationRequested && !_hub.State.Paused)
+        {
+            Status("running", "Checking the backup drives for folders no job uses…");
+            try { var s = set; await Task.Run(() => _cleaner.Survey(s, _drives.Ready(), stop), stop); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+            catch (Exception e) { _hub.Warn("Could not check the drives for the cleanup list: " + e.Message); }
+            finally { _hub.RunMessageOverride = null; }
+        }
 
         var end = DateTime.UtcNow;
         _hub.Mutate(s => s.LastCycleEnd = end);
@@ -242,6 +237,66 @@ public sealed class BackupEngine : BackgroundService
         _hub.SaveState();
     }
 
+    private async Task RunJob(JobState job, ServiceSettings set, CancellationToken stop)
+    {
+        _jobCts = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        try
+        {
+            var token = _jobCts.Token;
+            await Task.Run(() => _runner.Backup(job, set, token), token);
+        }
+        catch (OperationCanceledException) when (!stop.IsCancellationRequested)
+        {
+            job.LastEnd = DateTime.UtcNow;
+            job.LastResult = "interrupted";
+            job.LastMessage = _hub.State.Paused ? "Stopped by Pause" : "Skipped by request";
+        }
+        catch (OperationCanceledException) { job.LastResult = "interrupted"; job.LastMessage = "Service stopped"; throw; }
+        catch (Exception e)
+        {
+            job.LastEnd = DateTime.UtcNow;
+            job.LastResult = "error";
+            job.LastMessage = e.Message;
+            _hub.Error($"{job.Code}: {e}");
+        }
+        finally
+        {
+            _jobCts.Dispose();
+            _jobCts = null;
+            _hub.Current = null;
+            RefreshDrives();
+            _hub.SaveState();
+        }
+    }
+
+    /// <summary>The full-drive cleanup (DriveCleaner). Returns the bytes freed.</summary>
+    private async Task<long> Clean(ServiceSettings set, CancellationToken stop, bool force)
+    {
+        if (_hub.State.Paused) return 0;
+        try { return await Task.Run(() => _cleaner.CleanIfFull(set, _drives.Ready(), stop, force), stop); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+        catch (Exception e) { _hub.Warn("Cleanup failed: " + e.Message); return 0; }
+        finally { _hub.RunMessageOverride = null; RefreshDrives(); }
+    }
+
+    /// <summary>"Permanent folders" from the settings: (code, source), e.g. ("PERM-Library", @"\\server\share\Library").</summary>
+    private static List<(string Code, string Source)> PermanentFolders(ServiceSettings set)
+    {
+        var list = new List<(string Code, string Source)>();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in set.PermanentFolders ?? new())
+        {
+            var src = PathUtil.NormalizeSource((raw ?? "").Trim().Trim('"'));
+            if (src.Length < 3 || list.Any(x => x.Source.Equals(src, StringComparison.OrdinalIgnoreCase))) continue;
+            var name = System.Text.RegularExpressions.Regex.Replace(Path.GetFileName(src), "[^A-Za-z0-9_-]+", "_").Trim('_');
+            if (name.Length == 0) name = "Folder";
+            var code = Category.PermanentPrefix + name;
+            for (var n = 2; !used.Add(code); n++) code = Category.PermanentPrefix + name + "-" + n;
+            list.Add((code, src));
+        }
+        return list;
+    }
+
     /// <summary>Merge the server's job list into our state.</summary>
     private void SyncJobs(List<ServerJob> rows, ServiceSettings set)
     {
@@ -249,10 +304,21 @@ public sealed class BackupEngine : BackgroundService
         _hub.Mutate(state =>
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void SetSource(JobState j, string source)
+            {
+                if (string.Equals(source, j.Source, StringComparison.OrdinalIgnoreCase)) return;
+                var newRel = PathUtil.DestRelFor(source, j.Code);
+                if (!string.IsNullOrEmpty(j.DestRel) && !string.Equals(newRel, j.DestRel, StringComparison.OrdinalIgnoreCase))
+                    MoveDest(j, j.DestRel, newRel, ready);
+                if (!string.IsNullOrEmpty(j.Source)) _hub.Info($"{j.Code}: folder changed to {source}");
+                j.Source = source;
+                j.DestRel = newRel;
+            }
+
             foreach (var r in rows)
             {
                 var code = (r.JobCode ?? "").Trim();
-                if (code.Length == 0) continue;
+                if (code.Length == 0 || code.StartsWith(Category.PermanentPrefix, StringComparison.OrdinalIgnoreCase)) continue;
                 seen.Add(code);
                 var cat = Category.FromStatus(r.JobProjectStatus);
                 if (!state.Jobs.TryGetValue(code, out var j))
@@ -264,22 +330,31 @@ public sealed class BackupEngine : BackgroundService
                 j.Title = r.JobTitle ?? "";
                 j.DbStatus = r.JobProjectStatus ?? "";
                 j.Category = cat;
-
-                var source = PathUtil.NormalizeSource(r.JobFileLocation);
-                if (!string.Equals(source, j.Source, StringComparison.OrdinalIgnoreCase))
-                {
-                    var newRel = PathUtil.DestRelFor(source, code);
-                    if (!string.IsNullOrEmpty(j.DestRel) && !string.Equals(newRel, j.DestRel, StringComparison.OrdinalIgnoreCase))
-                        MoveDest(j, j.DestRel, newRel, ready);
-                    if (!string.IsNullOrEmpty(j.Source)) _hub.Info($"{code}: folder changed to {source}");
-                    j.Source = source;
-                    j.DestRel = newRel;
-                }
+                SetSource(j, PathUtil.NormalizeSource(r.JobFileLocation));
             }
+
+            // Permanent folders: backed up like production jobs whatever the database says, never removed.
+            foreach (var (code, source) in PermanentFolders(set))
+            {
+                seen.Add(code);
+                if (!state.Jobs.TryGetValue(code, out var j))
+                {
+                    j = new JobState { Code = code, FirstSeen = DateTime.UtcNow };
+                    state.Jobs[code] = j;
+                    _hub.Info($"{code}: new permanent folder {source}");
+                }
+                j.Title = source;
+                j.DbStatus = "Permanent folder (backup settings)";
+                j.Category = Category.Permanent;
+                SetSource(j, source);
+            }
+
             foreach (var j in state.Jobs.Values.Where(j => !seen.Contains(j.Code)))
             {
+                // Kept (and still never deleted by the cleanup) until removed by hand, like any job that left the database.
                 j.Category = Category.Unknown;
-                j.DbStatus = "(not in database)";
+                j.DbStatus = j.Code.StartsWith(Category.PermanentPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? "(not a permanent folder any more)" : "(not in database)";
             }
 
             // Two jobs pointing at the same folder: back it up once.
@@ -297,7 +372,7 @@ public sealed class BackupEngine : BackgroundService
     {
         var o = set.OverrideFor(j.Code);
         j.Skip = o?.Skip ?? false;
-        j.RetentionDays = o?.RetentionDays ?? (j.Category == Category.Active ? set.RetentionDaysActive : set.RetentionDaysPending);
+        j.RetentionDays = o?.RetentionDays ?? (j.Category is Category.Active or Category.Permanent ? set.RetentionDaysActive : set.RetentionDaysPending);
     }
 
     private string DefaultDestPath(string destRel) =>

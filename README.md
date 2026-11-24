@@ -5,11 +5,11 @@ to one or two local drives on the backup PC. It replaces adding bvckup2 jobs by 
 
 | What | Where |
 |---|---|
-| Program to install | `J:\_BACKUP_DEV\dist\MeditechBackup.exe` (one file, no .NET install needed, Windows 10 or newer, 64-bit) |
-| Source code | `J:\_BACKUP_DEV\MeditechBackup\` (C#, .NET 9) |
+| Program to install | `dist\MeditechBackup.exe` (one file, no .NET install needed, Windows 10 or newer, 64-bit; not in git: build it) |
+| Source code | https://github.com/BrianAwesomeMichael/MeditechBackup: `MeditechBackup\` (C#, .NET 9) |
 | Status + settings on 201 | `http://192.168.1.201/Meditech/admin.php?view=backup_service` |
 | On the backup PC | A window + tray icon (same page as the admin tab, plus **This PC** settings). Also `http://<backup-pc-ip>:8099/` from any browser |
-| Server side (PHP) | `J:\htdocs\Meditech\backupService\` (`api.php`, `admin_tab.php`, `status.js`, `status.css`, `data\`) |
+| Server side (PHP) | `server\backupService\` here, deployed to `J:\htdocs\Meditech\backupService\` (`api.php`, `admin_tab.php`, `common.php`, `status.js`, `status.css`; `data\` only on the server) |
 
 ## How it works
 
@@ -40,6 +40,21 @@ to one or two local drives on the backup PC. It replaces adding bvckup2 jobs by 
   moving it. bvckup2 keeps file dates, so unchanged files are skipped rather than recopied. Jobs with no existing folder go
   in `Jobs\<Client>\<Job>` (the sub-folder name can be changed under **This PC**). Turn off the bvckup2 jobs once this
   has taken over, so the two programs don't write the same folders.
+- **Permanent folders.** Folders listed under *Permanent folders* on the admin tab (e.g. `\\192.168.1.14\Projects2\_Library`)
+  are backed up every pass like a production job, whatever the database says. They show as `PERM-<folder name>`, and
+  per-job overrides work on that code. Taking one off the list keeps its backup (flagged, like a job that left the database).
+- **When a drive gets full.** When a backup drive has less free space than *Clean up below* (500 GB by default), the oldest
+  things with nothing written in *Only delete things older than* (7 days) are deleted until it's back above it:
+  - **Old versions** (on by default): `_versions` sets go sooner than *Keep old versions* says.
+  - **Folders no job uses** (off until you tick it): anything in the backup folder that isn't a job's backup, e.g. bvckup2
+    copies of jobs that went to tape before this program. A job's folder is never one of these, whatever its status.
+    Job-like folders (`ABC123 - ...`) go as a whole; other folders are looked into (up to 4 levels), and loose files are left alone.
+  - **Safe folders** are never deleted: a path in the backup folder (`Archive\Keep`, or `E:\Backups\Archive\Keep`) protects that
+    folder and everything in it; a name (`_KEEP`, `*-keep`) protects any folder with that name, and anything containing one.
+  - It runs at the start of a pass, before each job (at most every 30 minutes per drive), and straight away when a job runs out
+    of space; that job is then tried again. It does nothing until job history has loaded.
+  - The status page's **Cleanup** section lists the folders no job uses (worked out at the end of each pass, sizes remembered
+    for a day), whether each can be deleted, and the last 50 things the cleanup deleted. Every deletion is also in the log.
 - **Excludes.** Off by default. Add names like `_old`, `old`, `~old`, `*.tmp` on the admin tab.
 - **Commands.** *Run now*, *Pause*, *Resume* and *Skip job* work from both the admin tab and the local page.
 
@@ -87,8 +102,9 @@ Logs are in `logs\backup-YYYY-MM-DD.log` next to the exe and are kept for 60 day
 ## Building
 
 ```
-cd J:\_BACKUP_DEV\MeditechBackup
+cd MeditechBackup
 dotnet publish -c Release -o ..\dist
 ```
-The status page's `status.js` / `status.css` are built into the exe from `J:\htdocs\Meditech\backupService\`.
-After editing them, rebuild the exe so the local page matches the admin tab.
+The status page's `status.js` / `status.css` are built into the exe from `server\backupService\`.
+After editing them, copy `server\backupService\*` (not `data\`) to `J:\htdocs\Meditech\backupService\` and rebuild the
+exe, so the admin tab and the local page match.

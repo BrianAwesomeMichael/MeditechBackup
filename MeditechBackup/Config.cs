@@ -143,7 +143,23 @@ public sealed class ServiceSettings
     public bool Rebalance { get; set; } = true;
     public Dictionary<string, JobOverride> JobOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    // ---- When a drive is full ----
+    /// <summary>A drive with less free space than this gets cleaned up (to back above it).</summary>
+    public double CleanupFreeGb { get; set; } = 500;
+    /// <summary>Only things with nothing written in this many days are deleted by the cleanup.</summary>
+    public int CleanupMinAgeDays { get; set; } = 7;
+    /// <summary>A: delete old versions older than CleanupMinAgeDays (sooner than their usual retention).</summary>
+    public bool CleanupVersions { get; set; } = true;
+    /// <summary>B: delete folders on the backup drives that no job uses (old bvckup2 copies etc.).</summary>
+    public bool CleanupUnowned { get; set; }
+    /// <summary>Never deleted by the cleanup: "Archive\Keep" (a path under the backup folder, and everything in it)
+    /// or "KEEP*" (any folder with that name).</summary>
+    public List<string> ProtectedFolders { get; set; } = new();
+    /// <summary>Always backed up like a production job, whatever the database says: "\\server\share\Folder".</summary>
+    public List<string> PermanentFolders { get; set; } = new();
+
     public long ReserveBytes => (long)(ReserveFreeGb * 1024 * 1024 * 1024);
+    public long CleanupFreeBytes => Math.Max(ReserveBytes, (long)(CleanupFreeGb * 1024 * 1024 * 1024));
 
     public JobOverride? OverrideFor(string code) =>
         JobOverrides?.FirstOrDefault(kv => string.Equals(kv.Key, code, StringComparison.OrdinalIgnoreCase)).Value;

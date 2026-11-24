@@ -39,7 +39,8 @@
     }
     function pct(a, b) { return b > 0 ? Math.max(0, Math.min(100, a / b * 100)) : 0; }
 
-    var CAT_LABEL = { active: 'Production', pending: 'Pending zip', held: 'Zipping / zipped', done: 'Complete', unknown: 'Not in DB' };
+    var CAT_LABEL = { active: 'Production', pending: 'Pending zip', held: 'Zipping / zipped', done: 'Complete', unknown: 'Not in DB', permanent: 'Permanent' };
+    function day(iso) { if (!iso) return ''; var t = new Date(iso); return isNaN(t) ? '' : t.toLocaleDateString(); }
 
     function mount(root, opts) {
         opts = opts || {};
@@ -56,6 +57,15 @@
             '<th data-k="last_result">Last run</th><th data-k="bytes" class="num">Size</th><th data-k="files" class="num">Files</th>' +
             '<th data-k="last_copied_bytes" class="num">Copied last run</th><th data-k="version_bytes" class="num">Old versions</th>' +
             '<th data-k="drives">Drive</th></tr></thead><tbody data-r="rows"></tbody></table></div>' +
+            '<h2>Cleanup when a drive is full</h2><div class="small" data-r="cleanup"></div>' +
+            '<details class="cleanup"><summary data-r="cand-sum">Folders no job uses</summary>' +
+            '<p class="small muted">Not any job&rsquo;s backup. With <em>Delete folders no job uses</em> on, these go oldest first when a drive is full. ' +
+            'Add anything to keep to <em>Safe folders</em> in the backup settings.</p>' +
+            '<div class="tablewrap"><table class="jobs"><thead><tr><th>Folder</th><th class="num">Size</th><th class="num">Files</th>' +
+            '<th>Last written</th><th>Can delete</th></tr></thead><tbody data-r="cand"></tbody></table></div></details>' +
+            '<details class="cleanup"><summary data-r="del-sum">Deleted by the cleanup</summary>' +
+            '<div class="tablewrap"><table class="jobs"><thead><tr><th>When</th><th>What</th><th class="num">Size</th><th>Last written</th></tr></thead>' +
+            '<tbody data-r="del"></tbody></table></div></details>' +
             '<h2>Log</h2><div class="log" data-r="log"></div>';
 
         var $ = function (r) { return root.querySelector('[data-r="' + r + '"]'); };
@@ -169,6 +179,39 @@
             $('count').textContent = jobs.length + ' of ' + (last.jobs || []).length + ' jobs';
         }
 
+        function renderCleanup(s) {
+            var set = s.settings || {}, c = s.cleanup || {};
+            var on = [];
+            if (set.cleanup_versions) on.push('old versions');
+            if (set.cleanup_unowned) on.push('folders no job uses');
+            var h = on.length
+                ? 'Below <b>' + esc(set.cleanup_free_gb) + ' GB</b> free, deletes ' + esc(on.join(' and ')) +
+                  ' with nothing written in ' + esc(set.cleanup_min_age_days) + ' days, oldest first.'
+                : '<span class="res warnings">Off.</span> Nothing is deleted when a drive is full.';
+            if (!set.cleanup_unowned && c.eligible_bytes > 0)
+                h += ' <span class="res warnings">Deleting folders no job uses is off; it could free ' + bytes(c.eligible_bytes) + '.</span>';
+            if (c.last_run) h += '<br>Last cleanup ' + when(c.last_run) + ': ' + esc(c.last_message || '');
+            var prot = set.protected_folders || [];
+            h += '<br><span class="muted">Safe folders: ' + (prot.length ? esc(prot.join(', ')) : 'none') + '</span>';
+            $('cleanup').innerHTML = h;
+
+            var cand = c.candidates || [];
+            $('cand-sum').innerHTML = 'Folders no job uses: ' + num(cand.length) + ', ' + bytes(c.total_bytes) +
+                ' (' + bytes(c.eligible_bytes) + ' old enough to delete)' +
+                (c.surveyed_at ? ' <span class="muted small">checked ' + when(c.surveyed_at) + '</span>' : ' <span class="muted small">checked at the end of the next pass</span>');
+            $('cand').innerHTML = cand.map(function (x) {
+                return '<tr><td class="file">' + esc(x.path) + '</td><td class="num">' + bytes(x.bytes) + '</td><td class="num">' + num(x.files) + '</td>' +
+                       '<td>' + esc(day(x.newest)) + '</td><td>' + (x.eligible ? '<span class="res ok">yes</span>' : '<span class="res never">no</span> <span class="small muted">' + esc(x.note || '') + '</span>') + '</td></tr>';
+            }).join('') || '<tr><td colspan="5" class="muted">None found.</td></tr>';
+
+            var del = c.recent || [];
+            $('del-sum').textContent = 'Deleted by the cleanup: ' + (del.length ? del.length + ' most recent' : 'nothing yet');
+            $('del').innerHTML = del.map(function (x) {
+                return '<tr><td>' + when(x.at) + '</td><td class="file">' + esc(x.path) + (x.kind === 'versions' ? ' <span class="small muted">(old versions)</span>' : '') + '</td>' +
+                       '<td class="num">' + bytes(x.bytes) + '</td><td>' + esc(day(x.newest)) + '</td></tr>';
+            }).join('') || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>';
+        }
+
         function renderLog(s) {
             var box = $('log'), atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 5;
             box.innerHTML = (s.log || []).map(function (l) {
@@ -184,6 +227,7 @@
                 renderBar(last, lastMeta);
                 renderCards(last);
                 renderRows();
+                renderCleanup(last);
                 renderLog(last);
             }
         };

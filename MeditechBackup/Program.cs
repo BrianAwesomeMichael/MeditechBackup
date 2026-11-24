@@ -57,6 +57,7 @@ public static class Program
         builder.Services.AddSingleton(sp => new ServerClient(cfg, exeDir));
         builder.Services.AddSingleton(sp => new BackupDrives(cfg));
         builder.Services.AddSingleton<JobRunner>();
+        builder.Services.AddSingleton<DriveCleaner>();
         builder.Services.AddSingleton<BackupEngine>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupEngine>());
         builder.Services.AddHostedService<Reporter>();

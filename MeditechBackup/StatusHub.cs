@@ -23,6 +23,10 @@ public sealed class StatusHub
     public DateTime StartedAt { get; } = DateTime.UtcNow;
     public List<DriveInfoDto> Drives { get; set; } = new();
     public ServiceSettings? Settings { get; set; }
+    /// <summary>Set by DriveCleaner (replaced whole, never changed in place).</summary>
+    public CleanupStatus? Cleanup { get; set; }
+    /// <summary>Shown instead of RunMessage while the cleanup is busy (it can take a while on big drives).</summary>
+    public string? RunMessageOverride { get; set; }
     public int WebPort => _cfg.WebPort;
 
     public StatusHub(LocalConfig cfg, string exeDir)
@@ -124,7 +128,7 @@ public sealed class StatusHub
                 StartedAt = StartedAt,
                 Now = DateTime.UtcNow,
                 State = State.Paused && RunState != "running" ? "paused" : RunState,
-                StateMessage = RunMessage,
+                StateMessage = RunMessageOverride ?? RunMessage,
                 Paused = State.Paused,
                 Cycle = new CycleInfo
                 {
@@ -137,8 +141,20 @@ public sealed class StatusHub
                 Jobs = State.Jobs.Values.OrderBy(j => j.Code).ToList(),
                 Log = _log.ToList(),
                 Settings = Settings,
+                Cleanup = CleanupSnapshot(),
             };
         }
+    }
+
+    private CleanupStatus CleanupSnapshot()
+    {
+        var c = Cleanup ?? new CleanupStatus();
+        return new CleanupStatus
+        {
+            SurveyedAt = c.SurveyedAt, Candidates = c.Candidates.Take(300).ToList(), EligibleBytes = c.EligibleBytes,
+            TotalBytes = c.TotalBytes, LastRun = c.LastRun, LastMessage = c.LastMessage,
+            Recent = (State.CleanupHistory ?? new()).Take(50).ToList(),
+        };
     }
 
     /// <summary>Run an update to job state under the lock (the web thread reads it concurrently).</summary>
