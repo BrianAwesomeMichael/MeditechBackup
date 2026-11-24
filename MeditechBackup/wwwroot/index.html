@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meditech Backup</title>
+<link rel="stylesheet" href="status.css">
+<style>
+  body { margin: 0; padding: 14px 20px 40px; background: #fff; font-family: Segoe UI, Arial, sans-serif; }
+  .tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 2px solid #e3e7eb; }
+  .tabs button { border: none; background: none; padding: 9px 16px; font-size: 15px; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; color: #555; }
+  .tabs button.on { border-bottom-color: #2196F3; color: #111; font-weight: 600; }
+  .tabs .warn { color: #c62828; font-weight: 700; }
+  .pane { display: none; } .pane.on { display: block; }
+  .pc { max-width: 1050px; font-size: 14px; }
+  .pc h2 { font-size: 1.1em; margin: 18px 0 6px; }
+  .pc .row { display: grid; grid-template-columns: 210px 1fr; gap: 6px 16px; align-items: start; margin: 10px 0; }
+  .pc .row > label { font-weight: 600; padding-top: 6px; }
+  .pc input[type=text], .pc textarea { width: 100%; max-width: 520px; padding: 6px 8px; border: 1px solid #c0c0c0; border-radius: 4px; font-family: Consolas, monospace; font-size: 14px; box-sizing: border-box; }
+  .pc .hint { font-size: .85em; opacity: .7; margin-top: 3px; max-width: 640px; }
+  .pc table { border-collapse: collapse; width: 100%; font-size: .9em; margin-top: 6px; }
+  .pc th, .pc td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+  .pc th { background: #f5f5f5; }
+  .ok { color: #2e7d32; font-weight: 600; } .bad { color: #c62828; font-weight: 600; }
+  .pc .btns { margin: 14px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .pc .btns button { padding: 8px 18px; font-size: 14px; border-radius: 4px; border: 1px solid #999; background: #fff; cursor: pointer; }
+  .pc .btns button.primary { background: #2196F3; border-color: #2196F3; color: #fff; }
+  .pc .addbtn { padding: 2px 9px; font-size: 12px; cursor: pointer; }
+  .pc .note { background: #fff8e1; border-left: 4px solid #ffb300; padding: 8px 12px; margin: 10px 0; font-size: .9em; }
+  .pc .err { background: #fdecea; border-left: 4px solid #e53935; padding: 8px 12px; margin: 10px 0; }
+  code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="tabs">
+  <button data-tab="status" class="on">Status</button>
+  <button data-tab="pc">This PC <span id="pcwarn" class="warn"></span></button>
+</div>
+
+<div class="pane on" id="pane-status"><div id="root"></div></div>
+
+<div class="pane pc" id="pane-pc">
+  <div id="pc-msg"></div>
+  <p>Where this PC keeps the backups. Everything else (how often, how long to keep old versions, excludes) is set on the
+     <b>Backup Service</b> tab of the admin page on 201.</p>
+
+  <div class="row"><label for="drives">Backup drives</label>
+    <div><textarea id="drives" rows="3" placeholder="E:&#10;G:"></textarea>
+    <div class="hint">One per line, e.g. <code>E:</code> and <code>G:</code>. New jobs go on the drive with the most free space; a job that outgrows its drive continues on the other one.</div></div></div>
+
+  <div class="row"><label for="root_folder_name">Folder on each drive</label>
+    <div><input type="text" id="root_folder_name" placeholder="Backups">
+    <div class="hint">The folder everything lives in, e.g. <code>Backups</code> &rarr; <code>E:\Backups</code>. Use the folder bvckup2 was backing up to:
+    jobs that already have a folder there carry on in it and only changed files are copied.</div></div></div>
+
+  <div class="row"><label for="jobs_subfolder">New jobs go in</label>
+    <div><input type="text" id="jobs_subfolder" placeholder="(straight in the folder above)">
+    <div class="hint">Sub-folder for jobs that don't have a backup yet, as <code>Client\Job folder</code>. Default <code>Jobs</code>. Leave empty to put them straight in the folder above.</div></div></div>
+
+  <div class="row"><label for="server_url">Server (201)</label>
+    <div><input type="text" id="server_url">
+    <div class="hint">Normally <code>http://192.168.1.201/Meditech/backupService/api.php</code></div></div></div>
+
+  <div class="btns">
+    <button id="check">Check</button>
+    <button id="save" class="primary">Save</button>
+    <span id="savemsg"></span>
+  </div>
+
+  <h2>What these folders look like</h2>
+  <div id="checkres" class="muted">&hellip;</div>
+
+  <h2>Drives on this PC</h2>
+  <div id="avail"></div>
+
+  <p class="hint" id="cfgfile"></p>
+</div>
+
+<script src="status.js"></script>
+<script>
+(function () {
+  var view = MBK.mount(document.getElementById('root'), {
+    onCommand: function (cmd) { fetch('api/command/' + cmd, { method: 'POST' }).then(refresh); }
+  });
+  function refresh() {
+    fetch('api/status', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (s) { view.update(s, {}); })
+      .catch(function () { view.update({ state: 'error', state_message: 'The backup program is not responding.' }, { offline: true }); });
+  }
+  refresh();
+  setInterval(refresh, 3000);
+
+  // ---- tabs ----
+  function tab(name) {
+    document.querySelectorAll('.tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === name); });
+    document.querySelectorAll('.pane').forEach(function (p) { p.classList.toggle('on', p.id === 'pane-' + name); });
+  }
+  document.querySelectorAll('.tabs button').forEach(function (b) { b.onclick = function () { tab(b.dataset.tab); }; });
+
+  // ---- This PC ----
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  function form() {
+    return {
+      drives: $('drives').value.split(/[\r\n,;]+/).map(function (s) { return s.trim(); }).filter(Boolean),
+      root_folder_name: $('root_folder_name').value.trim(),
+      jobs_subfolder: $('jobs_subfolder').value.trim(),
+      server_url: $('server_url').value.trim()
+    };
+  }
+  function fill(d) {
+    var c = d.config;
+    $('drives').value = (c.drives || []).join('\n');
+    $('root_folder_name').value = c.root_folder_name || '';
+    $('jobs_subfolder').value = c.jobs_subfolder || '';
+    $('server_url').value = c.server_url || '';
+  }
+  function show(d) {
+    var msg = '';
+    if (d.load_error) msg += '<div class="err"><b>The settings file has a problem:</b> ' + esc(d.load_error) + '</div>';
+    if (!d.can_edit) msg += '<div class="note">You are viewing this from another PC. Settings can only be changed on the backup PC itself.</div>';
+    if (!(d.config.drives || []).length) msg += '<div class="note"><b>No backup drives set yet.</b> Enter them below and press Save &mdash; backups start straight away, no restart needed.</div>';
+    $('pc-msg').innerHTML = msg;
+    $('pcwarn').textContent = (d.load_error || !(d.config.drives || []).length) ? '!' : '';
+    $('save').disabled = !d.can_edit;
+
+    var h = '';
+    if (!d.drives.length) h = '<span class="muted">No drives entered.</span>';
+    else {
+      h = '<table><tr><th>Drive</th><th>Backup folder</th><th>Free</th><th>What&rsquo;s in it</th></tr>';
+      d.drives.forEach(function (x) {
+        h += '<tr><td><b>' + esc(x.drive) + '</b></td><td><code>' + esc(x.folder) + '</code><br>' +
+             (!x.drive_ok ? '<span class="bad">Drive not found</span>' :
+              x.folder_exists ? '<span class="ok">Folder exists</span>' : '<span class="muted">Folder will be created</span>') + '</td>' +
+             '<td>' + (x.drive_ok ? MBK.bytes(x.free_bytes) + ' of ' + MBK.bytes(x.total_bytes) : '') + '</td>' +
+             '<td>' + (x.folder_exists ? x.folder_count + ' folder(s)' + (x.sample.length ? ': <span class="small">' + x.sample.map(esc).join(', ') + (x.folder_count > x.sample.length ? ', &hellip;' : '') + '</span>' : '') : '') +
+             (x.error ? '<br><span class="bad">' + esc(x.error) + '</span>' : '') + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    $('checkres').innerHTML = h;
+
+    var a = '<table><tr><th>Drive</th><th>Name</th><th>Type</th><th>Free</th><th></th></tr>';
+    d.available.forEach(function (x) {
+      a += '<tr><td><b>' + esc(x.drive) + '</b></td><td>' + esc(x.label) + '</td><td>' + esc(x.type) + '</td><td>' +
+           MBK.bytes(x.free_bytes) + ' of ' + MBK.bytes(x.total_bytes) + '</td><td><button class="addbtn" data-add="' + esc(x.drive) + '">Add</button></td></tr>';
+    });
+    $('avail').innerHTML = a + '</table>';
+    $('cfgfile').innerHTML = 'Saved in <code>' + esc(d.file) + '</code> on ' + esc(d.machine) + '.';
+  }
+  function post(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); });
+  }
+  fetch('api/local', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+    fill(d); show(d);
+    if (!(d.config.drives || []).length || d.load_error) tab('pc');
+  });
+  $('check').onclick = function () { post('api/local/check', form()).then(show); };
+  $('save').onclick = function () {
+    $('savemsg').textContent = 'Saving…';
+    post('api/local', form()).then(function (d) {
+      if (d.ok === false) { $('savemsg').textContent = d.error; return; }
+      fill(d); show(d);
+      $('savemsg').innerHTML = '<span class="ok">Saved.</span> The backup picks this up within a few seconds.';
+    }).catch(function (e) { $('savemsg').textContent = 'Error: ' + e; });
+  };
+  $('avail').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-add]'); if (!b) return;
+    var d = b.dataset.add.replace(/\\$/, '');
+    var cur = $('drives').value.split(/[\r\n]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (cur.map(function (s) { return s.toUpperCase().replace(/\\$/, ''); }).indexOf(d.toUpperCase()) < 0) cur.push(d);
+    $('drives').value = cur.join('\n');
+    post('api/local/check', form()).then(show);
+  });
+})();
+</script>
+</body>
+</html>

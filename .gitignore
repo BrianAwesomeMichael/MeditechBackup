@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+dist/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+*.user
+Thumbs.db
+.DS_Store
+
+# Server state (lives on 201 only)
+server/backupService/data/
+
+# Old empty copy
+_BACKUP_DEV1/

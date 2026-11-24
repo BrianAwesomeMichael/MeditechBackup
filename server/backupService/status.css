@@ -1,0 +1,44 @@
+/* Shared by admin.php?view=backup_service and the local page served by MeditechBackup.exe */
+.mbk { font-size: 14px; line-height: 1.4; color: #222; }
+.mbk * { box-sizing: border-box; }
+.mbk h2 { font-size: 1.1em; margin: 22px 0 8px; }
+.mbk .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 14px; background: #f4f6f8; border-radius: 6px; }
+.mbk .bar .grow { flex: 1; min-width: 200px; }
+.mbk .pill { display: inline-block; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: .85em; white-space: nowrap; }
+.mbk .pill.running { background: #c5e1ff; color: #0a3d75; }
+.mbk .pill.waiting { background: #d4edda; color: #155724; }
+.mbk .pill.paused  { background: #fff3c4; color: #5d4e00; }
+.mbk .pill.error, .mbk .pill.offline { background: #f8d7da; color: #721c24; }
+.mbk .pill.starting { background: #e0e0e0; color: #333; }
+.mbk .muted { opacity: .65; }
+.mbk .small { font-size: .85em; }
+.mbk button { padding: 6px 12px; border-radius: 4px; border: 1px solid #999; background: #fff; cursor: pointer; font-size: .9em; }
+.mbk button.primary { background: #2196F3; border-color: #2196F3; color: #fff; }
+.mbk button:hover { filter: brightness(.95); }
+.mbk .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+.mbk .card { border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 14px; background: #fff; }
+.mbk .card h3 { margin: 0 0 6px; font-size: .95em; word-break: break-all; }
+.mbk .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .9em; }
+.mbk .kv b { font-weight: 600; opacity: .7; }
+.mbk .meter { height: 10px; background: #eceff1; border-radius: 5px; overflow: hidden; margin: 6px 0 2px; }
+.mbk .meter > span { display: block; height: 100%; background: #2196F3; }
+.mbk .meter.warn > span { background: #ff9800; }
+.mbk .meter.bad > span { background: #e53935; }
+.mbk .file { font-family: Consolas, monospace; font-size: .8em; word-break: break-all; opacity: .8; }
+.mbk .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.mbk .tools input[type=search] { padding: 5px 8px; min-width: 220px; border: 1px solid #c0c0c0; border-radius: 4px; }
+.mbk .tablewrap { overflow-x: auto; }
+.mbk table.jobs { width: 100%; border-collapse: collapse; font-size: .88em; }
+.mbk table.jobs th, .mbk table.jobs td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e6e6e6; vertical-align: top; }
+.mbk table.jobs th { background: #f5f5f5; cursor: pointer; white-space: nowrap; user-select: none; }
+.mbk table.jobs td.num { text-align: right; white-space: nowrap; }
+.mbk table.jobs tr.cur td { background: #e3f2fd; }
+.mbk .res { font-weight: 600; font-size: .85em; }
+.mbk .res.ok { color: #2e7d32; } .mbk .res.warnings { color: #ef6c00; } .mbk .res.error { color: #c62828; }
+.mbk .res.never, .mbk .res.held, .mbk .res.skipped, .mbk .res.interrupted { color: #777; }
+.mbk .cat { font-size: .78em; padding: 1px 7px; border-radius: 9px; background: #eceff1; white-space: nowrap; }
+.mbk .cat.active { background: #c5e1ff; } .mbk .cat.pending { background: #fff3c4; } .mbk .cat.held { background: #e0e0e0; }
+.mbk .cat.done { background: #d4edda; } .mbk .cat.unknown { background: #f8d7da; }
+.mbk .log { max-height: 340px; overflow-y: auto; font-family: Consolas, monospace; font-size: .8em; background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 6px 8px; }
+.mbk .log div { white-space: pre-wrap; word-break: break-word; }
+.mbk .log .warn { color: #b26a00; } .mbk .log .error { color: #c62828; }
